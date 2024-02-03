@@ -22,7 +22,9 @@ parser.add_argument("--lr", type=float, default=0.01)
 parser.add_argument("--workers", type=int, default=4)
 parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
 parser.add_argument("--seed", type=int, default=42)
+parser.add_argument("--nolog", action="store_true")
 args = parser.parse_args()
+
 
 logging.basicConfig(
     format="%(asctime)s.%(msecs)03d %(levelname)s %(message)s", 
@@ -30,6 +32,8 @@ logging.basicConfig(
     level=logging.INFO
 )
 logger = logging.getLogger()
+if args.nolog:
+    logging.disable(sys.maxsize)
 
 
 class AverageMeter:
@@ -65,13 +69,9 @@ def accuracy(output, target):
 
 
 def train_loop(args, train_loader, test_loader, model, criterion, optimizer):
+    wandb.init(project = "SimpleCVSupervised", name = args.name, config = args)
     logger.info(f"Training {args.model} on {args.dataset} @{args.train_steps}")
     logger.info(args)
-    wandb.init(
-        project = "SimpleCVSupervised",
-        name = args.name,
-        config = args
-    )
     pbar = tqdm(total = args.test_steps)
     train_iter = iter(train_loader)
     train_accuracy = AverageMeter()
