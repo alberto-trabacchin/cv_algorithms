@@ -5,9 +5,13 @@ from torch.utils.data import DataLoader
 from torchvision.transforms import transforms
 from tqdm import tqdm
 import argparse
+import wandb
+import logging
+import sys
 
 
 parser = argparse.ArgumentParser()
+parser.add_argument("--name", type=str, required=True)
 parser.add_argument("--data-dir", type=str, default="data")
 parser.add_argument("--dataset", type=str, default="cifar10")
 parser.add_argument("--model", type=str, default="resnet50")
@@ -19,6 +23,13 @@ parser.add_argument("--workers", type=int, default=4)
 parser.add_argument("--device", type=str, default="cuda" if torch.cuda.is_available() else "cpu")
 parser.add_argument("--seed", type=int, default=42)
 args = parser.parse_args()
+
+logging.basicConfig(
+    format="%(asctime)s.%(msecs)03d %(levelname)s %(message)s", 
+    datefmt='%Y-%m-%d,%H:%M:%S', 
+    level=logging.INFO
+)
+logger = logging.getLogger()
 
 
 class AverageMeter:
@@ -54,10 +65,18 @@ def accuracy(output, target):
 
 
 def train_loop(args, train_loader, test_loader, model, criterion, optimizer):
+    logger.info(f"Training {args.model} on {args.dataset} @{args.train_steps}")
+    logger.info(args)
+    wandb.init(
+        project = "SimpleCVSupervised",
+        name = args.name,
+        config = args
+    )
     pbar = tqdm(total = args.test_steps)
     train_iter = iter(train_loader)
     train_accuracy = AverageMeter()
     train_loss = AverageMeter()
+    top1_accuracy = 0.0
     for step in range(args.train_steps):
         try:
             data, target = next(train_iter)
@@ -80,8 +99,19 @@ def train_loop(args, train_loader, test_loader, model, criterion, optimizer):
 
         if (step + 1) % args.test_steps == 0:
             pbar.close()
-            evaluate(args, test_loader, model, criterion, step)
+            test_loss, test_accuracy = evaluate(args, test_loader, model, criterion, step)
+            wandb.log({
+                "train/loss": train_loss.avg,
+                "train/accuracy": train_accuracy.avg,
+                "test/loss": test_loss,
+                "test/accuracy": test_accuracy
+            })
+            if test_accuracy > top1_accuracy:
+                top1_accuracy = test_accuracy
+                wandb.save("model.pth")
+                logger.info(f"Model saved with top1/acc: {top1_accuracy:.4f}")
             pbar = tqdm(total = args.test_steps)
+    print("TRAINING FINISHED")
 
 
 def evaluate(args, test_loader, model, criterion, step = 0):
@@ -97,10 +127,11 @@ def evaluate(args, test_loader, model, criterion, step = 0):
             test_loss.update(loss.item())
             test_accuracy.update(accuracy(output, target))
             pbar.set_description(
-                f"{(step + 1):4d}/{args.train_steps}: test/loss:  {test_loss.avg:.4E}, test/acc:  {test_accuracy.avg:.4f}"
+                f"{(step + 1):4d}/{args.train_steps}:  test/loss: {test_loss.avg:.4E},  test/acc: {test_accuracy.avg:.4f}"
             )
             pbar.update()
     pbar.close()
+    return test_loss.avg, test_accuracy.avg
 
 
 if __name__ == "__main__":
