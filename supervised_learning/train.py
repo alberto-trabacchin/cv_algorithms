@@ -3,6 +3,7 @@ import data, models
 import torch
 from torch.utils.data import DataLoader
 from torchvision.transforms import transforms
+from torch.optim.lr_scheduler import CosineAnnealingLR
 from tqdm import tqdm
 import argparse
 import wandb
@@ -68,7 +69,7 @@ def accuracy(output, target):
     return accuracy
 
 
-def train_loop(args, train_loader, test_loader, model, criterion, optimizer):
+def train_loop(args, train_loader, test_loader, model, criterion, optimizer, scheduler):
     wandb.init(project = "SimpleCVSupervised", name = args.name, config = args)
     logger.info(f"Training {args.model} on {args.dataset} @{args.train_steps}")
     logger.info(args)
@@ -78,6 +79,7 @@ def train_loop(args, train_loader, test_loader, model, criterion, optimizer):
     train_loss = AverageMeter()
     top1_accuracy = 0.0
     for step in range(args.train_steps):
+        wandb.log({"lr": optimizer.param_groups[0]["lr"]})
         try:
             data, target = next(train_iter)
         except StopIteration:
@@ -85,11 +87,12 @@ def train_loop(args, train_loader, test_loader, model, criterion, optimizer):
             data, target = next(train_iter)
         data, target = data.to(args.device), target.to(args.device)
         model.train()
-        optimizer.zero_grad()
         output = model(data)
         loss = criterion(output, target)
+        optimizer.zero_grad()
         loss.backward()
         optimizer.step()
+        scheduler.step()
         train_loss.update(loss.item())
         train_accuracy.update(accuracy(output, target))
         pbar.set_description(
@@ -105,7 +108,7 @@ def train_loop(args, train_loader, test_loader, model, criterion, optimizer):
                 "train/accuracy": train_accuracy.avg,
                 "test/loss": test_loss,
                 "test/accuracy": test_accuracy
-            })
+            }, step = step + 1)
             if test_accuracy > top1_accuracy:
                 top1_accuracy = test_accuracy
                 wandb.save("model.pth")
@@ -154,4 +157,5 @@ if __name__ == "__main__":
     model = model.to(args.device)
     criterion = torch.nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(params = model.parameters(), lr = args.lr)
-    train_loop(args, train_loader, test_loader, model, criterion, optimizer)
+    scheduler = CosineAnnealingLR(optimizer, T_max = args.train_steps, eta_min = 0.0001)
+    train_loop(args, train_loader, test_loader, model, criterion, optimizer, scheduler)
