@@ -153,7 +153,7 @@ if __name__ == "__main__":
         shuffle = False,
         num_workers = args.workers
     )
-    model = models.model_getter[args.model]()
+    model = models.model_getter[args.model](args)
     model = model.to(args.device)
     criterion = torch.nn.CrossEntropyLoss()
     optimizer = torch.optim.Adam(params = model.parameters(), lr = args.lr)
